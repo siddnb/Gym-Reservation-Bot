@@ -1,6 +1,8 @@
 from telegram.ext import Updater, MessageHandler, CommandHandler, Filters
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ChatAction
 import logging
+from caps import caps
+import os
 
 from telegram.ext.conversationhandler import ConversationHandler
 import gspread
@@ -13,11 +15,19 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
 client = gspread.authorize(creds)
-sheet = client.open("Bot Tracking").sheet1
+trackingSheet = client.open("Bot Tracking").worksheet('Sheet1')
+slotsSheet = client.open("Bot Tracking").worksheet('Sheet2')
 
 NAME, UNIT, DAY, TIME, CONFIRMATION, SUBMIT, CANCEL = range(7)
 
 user_info = {}
+
+
+def get_slots(day):
+    slots = []
+    for cell in caps[day]:
+        slots.append(slotsSheet.acell(cell).value)
+    return slots
 
 
 def correct_format(update: Update, context):
@@ -37,7 +47,7 @@ def start(update: Update, context):
     return NAME
 
 def name(update: Update, context):
-    if(update.message.text == 'pass'):
+    if(update.message.text == 'Pass'):
         userID = str(update.message.chat_id)
         user_info[userID] = []
         update.message.reply_text(
@@ -74,11 +84,20 @@ def day(update: Update, context):
     return TIME
 
 def timeslot(update: Update, context):
-    if update.message.text == 'Monday'or'Tuesday'or'Wednesday'or'Thursday':
+    day = update.message.text
+    if (
+        day == 'Monday' 
+        or day == 'Tuesday' 
+        or day == 'Wednesday' 
+        or day == 'Thursday'
+        ):
         userID = str(update.message.chat_id)
         user_info[userID].append(str(update.message.text))
-        reply_keyboard = [['0730-0845', '0850-1005', 
-        '1010-1125', '1300-1415', '1420-1535', '1540-1655', '1830-1955','2000-2130']]
+
+        caps = get_slots(str(update.message.text))
+
+        reply_keyboard = [['0730-0845 ('+caps[0]+' slots remaining)'], ['0850-1005 ('+caps[1]+' slots remaining)'], ['1010-1125 ('+caps[2]+' slots remaining)'], 
+        ['1300-1415 ('+caps[3]+' slots remaining)'], ['1420-1535 ('+caps[4]+' slots remaining)'], ['1540-1655 ('+caps[5]+' slots remaining)'], ['1830-1955 ('+caps[6]+' slots remaining)'],['2000-2130 ('+caps[7]+' slots remaining)']]
         update.message.reply_text(
             'What time would you like to book?\n'
             'Send /cancel to stop talking to me.\n',
@@ -88,8 +107,11 @@ def timeslot(update: Update, context):
     elif update.message.text == 'Friday':
         userID = str(update.message.chat_id)
         user_info[userID].append(str(update.message.text))
-        reply_keyboard = [['0730-0845', '0850-1005', 
-        '1010-1125', '1300-1415', '1420-1535', '1540-1655']]
+        
+        caps = get_slots(str(update.message.text))
+
+        reply_keyboard = [['0730-0845 ('+caps[0]+' slots remaining)'], ['0850-1005 ('+caps[1]+' slots remaining)'], ['1010-1125 ('+caps[2]+' slots remaining)'], 
+        ['1300-1415 ('+caps[3]+' slots remaining)'], ['1420-1535 ('+caps[4]+' slots remaining)'], ['1540-1655 ('+caps[5]+' slots remaining)']]
         update.message.reply_text(
             'What time would you like to book?\n'
             'Send /cancel to stop talking to me.\n',
@@ -115,9 +137,22 @@ def submit(update: Update, context):
         name = user_info[UID][0]
         coy = user_info[UID][1]
         day = user_info[UID][2]
-        timeslot = user_info[UID][3]
-        booking = [UID,name, coy, day, timeslot]
-        sheet.insert_row(booking,3)
+        timeslot = user_info[UID][3][:9]
+        if day == 'Monday':
+            booking = [UID,name, coy,timeslot]
+        elif day == 'Tuesday':
+            booking = [UID,name, coy,"",timeslot]
+        elif day == 'Wednesday':
+            booking = [UID,name, coy,"","",timeslot]
+        elif day == 'Thursday':
+            booking = [UID,name, coy,"","","", timeslot]
+        else:
+            booking = [UID,name, coy,"","","","", timeslot]
+        trackingSheet.insert_row(booking)
+
+        update.message.reply_text('Booking successful.',
+        reply_markup=ReplyKeyboardRemove()
+        )
 
         return ConversationHandler.END
     else:
@@ -134,7 +169,7 @@ def cancel(update: Update, context):
     return ConversationHandler.END
 
 def main():
-    updater  = Updater(token='1956967365:AAGGWputg-LsdPN-QMix5GyFrqExkoQ3TA4', use_context = True)
+    updater  = Updater(token=os.environ["TOKEN"], use_context = True)
     dispatcher = updater.dispatcher
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
@@ -146,7 +181,8 @@ def main():
     UNIT: [MessageHandler(Filters.regex('^\w+\s\.*'),unit)],
     DAY: [MessageHandler(Filters.regex('^BNHQ$|^ALPHA$|^BRAVO$|^BOAT$|^SUPPORT$'),day)],
     TIME: [MessageHandler(Filters.regex('^Monday$|^Tuesday$|^Wednesday$|^Thursday$|^Friday$'),timeslot)],
-    CONFIRMATION: [MessageHandler(Filters.regex('^0730-0845$|^0850-1005$|^1010-1125$|^1300-1415$|^1420-1535$|^1540-1655$|^1830-1955$|^2000-2130$'),confirmation)],
+    CONFIRMATION: [MessageHandler(Filters.regex(
+        '^0730-0845|^0850-1005|^1010-1125|^1300-1415|^1420-1535|^1540-1655|^1830-1955|^2000-2130'),confirmation)],
     SUBMIT: [MessageHandler(Filters.regex('^Yes$|^yes$|^No$|^no$'), submit)]
     },
     fallbacks = [CommandHandler('cancel',cancel),MessageHandler(Filters.text, correct_format)]
