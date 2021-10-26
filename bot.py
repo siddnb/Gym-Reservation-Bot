@@ -15,12 +15,16 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/spreadsheets',
          'https://www.googleapis.com/auth/drive.file',
          'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
+jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
 client = gspread.authorize(creds)
 trackingSheet = client.open("Bot Tracking").worksheet('Sheet1')
 slotsSheet = client.open("Bot Tracking").worksheet('Sheet2')
 
-CHECKSTATE, MENU, NAME, UNIT, DAY, TIME, CONFIRMATION, SUBMIT, CANCEL = range(9)
+TOKEN = os.environ["TOKEN"]
+PORT = int(os.environ.get('PORT', '8443'))
+ 
+MENU, CHECKSTATE, VIEWBOOKING, NAME, UNIT, DAY, TIME, CONFIRMATION, SUBMIT, QUIT = range(10)
 
 session_booking = {}
 
@@ -36,7 +40,7 @@ def get_slots(day):
             i+=1
     else:
         for cell in capacities[day]:
-            slots[buttons.timeslotFri[i]] = int(slotsSheet.acell(cell).value)
+            slots[buttons.timeslotsFri[i]] = int(slotsSheet.acell(cell).value)
             i+=1
 
     return slots
@@ -59,7 +63,7 @@ def start(update: Update, context):
     return MENU
 
 def menu(update: Update, context):
-    if(update.message.text == 'Pass'):
+    if update.message.text == 'Pass':
         user_id = str(update.message.chat_id)
         session_booking[user_id] = Booking()
 
@@ -69,34 +73,58 @@ def menu(update: Update, context):
             session_booking[user_id].exists = True
             session_booking[user_id].get_existing_user_info(trackingSheet,user_cell.row)
 
-        reply_keyboard = [['Make A New Booking'], ['Edit A Booking'],['View Existing Bookings']]
+        reply_keyboard = [['Make A New Booking'], ['Edit A Booking'],['View Existing Bookings'],['Quit']]
         update.message.reply_text(
         'What would you like to do?', 
         reply_markup = ReplyKeyboardMarkup(reply_keyboard)
         )
 
         return CHECKSTATE
+    elif update.message.text == '/cancel':
+
+        return quit(update,context)
     else:
         update.message.reply_text('Wrong password, type /start to try signing in again.')
 
 def check_state(update: Update, context):
     user_id = str(update.message.chat_id)
-    if update.message.text == 'Make A New Booking':
+
+    response = update.message.text
+
+    if response == 'Quit':
+
+        return quit(update,context)
+
+    if response == 'Make A New Booking':
+        #Need to return functions because using conversation handler you need an update to prompt a state change otherwise. 
         if session_booking[user_id].exists:
-            update.message.reply_text(
-            'Let me pull up the available days.', 
-            reply_markup=ReplyKeyboardRemove()
-            )
-            #Need to return this function because using conversation handler you need an update to prompt a state change otherwise. 
+
             return day(update,context) 
         else:
 
-            return name(update, context)
+            return name(update,context)
+    elif response == 'View Existing Bookings':
+
+        return view_booking(update,context)
+
+def view_booking(update: Update, context):
+    user_id = str(update.message.chat_id)
+
+    existing_bookings = ""
+    for day, timeslot in session_booking[user_id].daily_bookings.items():
+        if timeslot != "None":
+            existing_bookings = existing_bookings + day+": "+timeslot+"\n"
+
+    update.message.reply_text(f'These are your existing bookings, {session_booking[user_id].rank_name}: \n'
+    f'{existing_bookings}',reply_markup= ReplyKeyboardRemove())
+
+    return ConversationHandler.END
+    
 
 def name(update: Update, context):
         update.message.reply_text(
-        'What is your name? (Please key in as Rank <Space> Name)', 
-        reply_markup=ReplyKeyboardRemove()
+        'Enter your name (key in as Rank <Space> Name)', 
+        reply_markup=ReplyKeyboardMarkup(['Quit'])
         )
 
         return UNIT
@@ -104,13 +132,18 @@ def name(update: Update, context):
 
 def unit(update: Update, context):
     user_id = str(update.message.chat_id)
-    session_booking[user_id].rank_name = str(update.message.text)
 
-    reply_keyboard = [['BNHQ'], ['ALPHA'], ['BRAVO'],['BOAT'], ['SUPPORT']]
+    response = update.message.text
+    if response == 'Quit':
+        
+        return QUIT
+
+    session_booking[user_id].rank_name = response
+
+    reply_keyboard = [['BNHQ'], ['ALPHA'], ['BRAVO'],['BOAT'], ['SUPPORT'],['Quit']]
     update.message.reply_text('''
     What subunit are you from? Please enter in CAPS.
-    Enter one: BNHQ, ALPHA, BRAVO, BOAT, SUPPORT
-    Send /cancel to stop talking to me.''',
+    Enter one: BNHQ, ALPHA, BRAVO, BOAT, SUPPORT.''',
         reply_markup=ReplyKeyboardMarkup(reply_keyboard),
     )
 
@@ -118,17 +151,21 @@ def unit(update: Update, context):
 
 def day(update: Update, context):
     user_id = str(update.message.chat_id)
+
+    response = update.message.text
+    if response == 'Quit':
+        
+        return QUIT
+
     #TODO: Add check whether coming from UNIT or SUBMIT state
     if not session_booking[user_id].exists:
-        session_booking[user_id].unit = str(update.message.text)
+        session_booking[user_id].unit = response
 
     current_bookings = list(session_booking[user_id].daily_bookings.values())
 
-    print(current_bookings)
-    print(list(capacities.keys()))
-
     # Display a day as an option if there is no previous booking (indicated by 'None')
     reply_keyboard = [[list(session_booking[user_id].daily_bookings.keys())[i]] for i in range(5) if current_bookings[i] == 'None']
+    reply_keyboard.append(['Quit'])
 
     update.message.reply_text('''
     What day would you like to make a booking for?
@@ -141,6 +178,10 @@ def day(update: Update, context):
 def timeslot(update: Update, context):
     day = update.message.text
 
+    if day == 'Quit':
+        
+        return quit(update,context)
+
     if (day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday']):
         user_id = str(update.message.chat_id)
         session_day[user_id] = str(update.message.text)
@@ -149,6 +190,8 @@ def timeslot(update: Update, context):
 
         #Adds the timeslots only if there are any free slots remaining.
         reply_keyboard = [[f'{times} ({current_caps[times]})'] for times in buttons.timeslotsMonToThur if current_caps[times]>0]
+        reply_keyboard.append(['Quit'])
+
         update.message.reply_text('''
         What time would you like to book?
         Send /cancel to stop talking to me.''',
@@ -163,8 +206,10 @@ def timeslot(update: Update, context):
         current_caps = get_slots(str(update.message.text))
 
         reply_keyboard = [[f'{times} ({current_caps[times]})'] for times in buttons.timeslotsFri if current_caps[times]>0]
+        reply_keyboard.append(['Quit'])
+
         update.message.reply_text('''
-        What timeslot would you like to book?
+        What time would you like to book?
         Send /cancel to stop talking to me.''',
             reply_markup=ReplyKeyboardMarkup(reply_keyboard)
         )
@@ -176,11 +221,18 @@ def timeslot(update: Update, context):
 def confirmation(update: Update, context):
     user_id = str(update.message.chat_id)
     day_to_book = session_day[user_id]
-    #We only want to store the timeslot. 
-    #This update text is in the following format 'timeslot' (8 chars) 'slots remaining' (the rest of the text), so we need to slice it.
-    session_booking[user_id].daily_bookings[day_to_book] = str(update.message.text)[:9]
 
-    reply_keyboard = [['Submit'],['Change Booking']]
+    response = update.message.text
+
+    if response == 'Quit':
+        
+        return quit(update,context)
+
+    # We only want to store the timeslot. 
+    # This update text is in the following format 'timeslot' (8 chars) 'slots remaining' (the rest of the text), so we need to slice it.
+    session_booking[user_id].daily_bookings[day_to_book] = response[:9]
+
+    reply_keyboard = [['Submit'],['Change Booking'],['Quit']]
     update.message.reply_text(f'''
     Your booking details are as follows:
     Day: {day_to_book}
@@ -211,7 +263,7 @@ def submit(update: Update, context):
 
         return ConversationHandler.END
 
-def cancel(update: Update, context):
+def quit(update: Update, context):
     update.message.reply_text(
         'The process has been cancelled, type /start to start over.', reply_markup=ReplyKeyboardRemove()
     )
@@ -220,7 +272,7 @@ def cancel(update: Update, context):
 
 
 def main():
-    updater  = Updater(token=os.environ["TOKEN"], use_context = True)
+    updater  = Updater(token=TOKEN, use_context = True)
     dispatcher = updater.dispatcher
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
@@ -230,22 +282,25 @@ def main():
         entry_points=[CommandHandler('start', start)],
     states={MENU:[MessageHandler(Filters.text,menu)],
     CHECKSTATE: [MessageHandler(Filters.text, check_state)],
+    VIEWBOOKING: [MessageHandler(Filters.text, view_booking)],
     NAME: [MessageHandler(Filters.text,name)],
     UNIT: [MessageHandler(Filters.regex('^\w+\s\.*'),unit)],
-    #DAY: [MessageHandler(Filters.regex('^BNHQ$|^ALPHA$|^BRAVO$|^BOAT$|^SUPPORT$'),day)],
     DAY: [MessageHandler(Filters.text,day)],
-    TIME: [MessageHandler(Filters.regex('^Monday$|^Tuesday$|^Wednesday$|^Thursday$|^Friday$'),timeslot)],
-    CONFIRMATION: [MessageHandler(Filters.regex(
-        '^0730-0845|^0850-1005|^1010-1125|^1300-1415|^1420-1535|^1540-1655|^1830-1955|^2000-2130'),confirmation)],
-    SUBMIT: [MessageHandler(Filters.regex('^Submit$|^Cancel$'), submit)]
+    TIME: [MessageHandler(Filters.text,timeslot)],
+    CONFIRMATION: [MessageHandler(Filters.text,confirmation)],
+    SUBMIT: [MessageHandler(Filters.regex('^Submit$|^Quit$'), submit)],
+    QUIT: [MessageHandler(Filters.text,quit)]
     },
-    fallbacks = [CommandHandler('cancel',cancel),MessageHandler(Filters.text|~Filters.text,correct_format)]
+    fallbacks = [CommandHandler('cancel',quit),MessageHandler(Filters.text|~Filters.text,correct_format)]
     )
 
     dispatcher.add_handler(start_conv_handler)
 
 
-    updater.start_polling()
+    # Start the Bot
+    updater.start_webhook(listen="0.0.0.0",
+                          port=PORT,
+                          url_path=TOKEN,webhook_url= 'https://secret-badlands-60887.herokuapp.com/' + TOKEN)
     
 
 if __name__ == '__main__':
