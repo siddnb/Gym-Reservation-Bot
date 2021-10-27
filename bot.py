@@ -23,6 +23,7 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive.file',
          'https://www.googleapis.com/auth/drive']
 jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+print(jsonfile)
 creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
 client = gspread.authorize(creds)
 trackingSheet = client.open("Bot Tracking").worksheet('Sheet1')
