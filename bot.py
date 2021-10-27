@@ -93,6 +93,8 @@ def menu(update: Update, context):
     else:
         update.message.reply_text('Wrong password, type /start to try signing in again.')
 
+        return ConversationHandler.END
+
 def check_state(update: Update, context):
     user_id = str(update.message.chat_id)
 
