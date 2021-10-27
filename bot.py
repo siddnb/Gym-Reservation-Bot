@@ -11,11 +11,18 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
+
 scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/spreadsheets',
          'https://www.googleapis.com/auth/drive.file',
          'https://www.googleapis.com/auth/drive']
-jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+jsonfile = os.environ.get('GOOGLE_CREDS')
 creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
 client = gspread.authorize(creds)
 trackingSheet = client.open("Bot Tracking").worksheet('Sheet1')
@@ -274,9 +281,6 @@ def quit(update: Update, context):
 def main():
     updater  = Updater(token=TOKEN, use_context = True)
     dispatcher = updater.dispatcher
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                        level=logging.INFO)
-    
 
     start_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
@@ -301,7 +305,7 @@ def main():
     updater.start_webhook(listen="0.0.0.0",
                           port=PORT,
                           url_path=TOKEN,webhook_url= 'https://secret-badlands-60887.herokuapp.com/' + TOKEN)
-    
+    updater.idle()
 
 if __name__ == '__main__':
     main()
