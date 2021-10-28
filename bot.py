@@ -23,9 +23,10 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/spreadsheets',
          'https://www.googleapis.com/auth/drive.file',
          'https://www.googleapis.com/auth/drive']
-#jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-#creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
-creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
+jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
+#For local testing
+#creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
 client = gspread.authorize(creds)
 trackingSheet = client.open("Bot Tracking").worksheet('Sheet1')
 slotsSheet = client.open("Bot Tracking").worksheet('Sheet2')
@@ -382,13 +383,13 @@ def main():
     dispatcher.add_handler(start_conv_handler)
 
 
-    # Start the Bot
-    # updater.start_webhook(listen="0.0.0.0",
-    #                       port=PORT,
-    #                       url_path=TOKEN,webhook_url= 'https://secret-badlands-60887.herokuapp.com/' + TOKEN)
-    # updater.idle()
+    updater.start_webhook(listen="0.0.0.0",
+                          port=PORT,
+                          url_path=TOKEN,webhook_url= 'https://secret-badlands-60887.herokuapp.com/' + TOKEN)
+    updater.idle()
 
-    updater.start_polling()
+    #For local testing
+    #updater.start_polling()
 
 if __name__ == '__main__':
     main()
