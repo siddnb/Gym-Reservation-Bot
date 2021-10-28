@@ -1,3 +1,4 @@
+from re import U
 from telegram.ext import Updater, MessageHandler, CommandHandler, Filters
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ChatAction, message
 import logging
@@ -22,8 +23,9 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/spreadsheets',
          'https://www.googleapis.com/auth/drive.file',
          'https://www.googleapis.com/auth/drive']
-jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
+#jsonfile = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+#creds = ServiceAccountCredentials.from_json_keyfile_name(jsonfile, scope)
+creds = ServiceAccountCredentials.from_json_keyfile_name('creds.json', scope)
 client = gspread.authorize(creds)
 trackingSheet = client.open("Bot Tracking").worksheet('Sheet1')
 slotsSheet = client.open("Bot Tracking").worksheet('Sheet2')
@@ -31,7 +33,7 @@ slotsSheet = client.open("Bot Tracking").worksheet('Sheet2')
 TOKEN = os.environ["TOKEN"]
 PORT = int(os.environ.get('PORT', '8443'))
  
-MENU, CHECKSTATE, VIEWBOOKING, NAME, UNIT, DAY, TIME, CONFIRMATION, SUBMIT, QUIT = range(10)
+MENU, CHECKSTATE, VIEWBOOKING, EDITBOOKING, NAME, UNIT, DAY, TIME, CONFIRMATION, SUBMIT, QUIT = range(11)
 
 session_booking = {}
 
@@ -51,16 +53,6 @@ def get_slots(day):
             i+=1
 
     return slots
-
-def correct_format(update: Update, context):
-    #for any errors in submission, Bot will send this to user.
-    update.message.delete()
-    update.message.reply_text(
-        'It seems like there was an error. \n'
-        'Please type it in the appropriate format: \n\n'
-        'For Name: Rank <Space> Name\n\n'
-        'For Subunit: BNHQ/ALPHA/BRAVO/BOAT/SUPPORT \n\n'
-        'Please input the correct format', reply_markup=ReplyKeyboardRemove() )
 
 def start(update: Update, context):
     update.message.reply_text(
@@ -100,21 +92,31 @@ def check_state(update: Update, context):
 
     response = update.message.text
 
-    if response == 'Quit':
+    try:
+        if response == 'Quit':
 
-        return quit(update,context)
+            return quit(update,context)
 
-    if response == 'Make A New Booking':
-        #Need to return functions because using conversation handler you need an update to prompt a state change otherwise. 
-        if session_booking[user_id].exists:
+        if response == 'Make A New Booking':
+            #Need to return functions because using conversation handler you need an update to prompt a state change otherwise. 
+            if session_booking[user_id].exists:
 
-            return day(update,context) 
-        else:
+                return day(update,context) 
+            else:
 
-            return name(update,context)
-    elif response == 'View Existing Bookings':
+                return name(update,context)
+        elif response == 'Edit A Booking':
 
-        return view_booking(update,context)
+            return edit_booking(update,context)
+        elif response == 'View Existing Bookings':
+
+            return view_booking(update,context)
+    except Exception as e:
+        print(e)
+        update.message.reply_text("Something went wrong, /start to start over.", reply_markup=ReplyKeyboardRemove())
+
+        return ConversationHandler.END
+
 
 def view_booking(update: Update, context):
     user_id = str(update.message.chat_id)
@@ -124,50 +126,75 @@ def view_booking(update: Update, context):
         if timeslot != "None":
             existing_bookings = existing_bookings + day+": "+timeslot+"\n"
 
-    update.message.reply_text(f'These are your existing bookings, {session_booking[user_id].rank_name}: \n'
-    f'{existing_bookings}',reply_markup= ReplyKeyboardRemove())
+    user = session_booking[user_id].rank_name
+
+    if user == "":
+        update.message.reply_text('You don\'t have any existing bookings',reply_markup= ReplyKeyboardRemove())
+    else:
+        update.message.reply_text(f'These are your existing bookings, {session_booking[user_id].rank_name}: \n'
+        f'{existing_bookings}',reply_markup= ReplyKeyboardRemove())
 
     return ConversationHandler.END
-    
+
+def edit_booking(update: Update, context):
+    user_id = str(update.message.chat_id)
+
+    current_bookings = list(session_booking[user_id].daily_bookings.values())
+
+    reply_keyboard = [[list(session_booking[user_id].daily_bookings.keys())[i]] for i in range(5) if current_bookings[i] != 'None']
+
+    if len(reply_keyboard) > 0:
+        update.message.reply_text('Which booking would you like to edit?', reply_markup=ReplyKeyboardMarkup(reply_keyboard))
+
+        return TIME
+    else:
+        update.message.reply_text('You don\'t have any bookings. /start to make a booking.')
+
+        return ConversationHandler.END
 
 def name(update: Update, context):
         update.message.reply_text(
         'Enter your name (key in as Rank <Space> Name)', 
-        reply_markup=ReplyKeyboardMarkup(['Quit'])
+        reply_markup=ReplyKeyboardMarkup([['Quit']])
         )
 
         return UNIT
     
-
 def unit(update: Update, context):
     user_id = str(update.message.chat_id)
 
-    response = update.message.text
-    if response == 'Quit':
-        
-        return QUIT
+    try:
+        response = update.message.text
+        if response == 'Quit':
+            
+            return quit(update,context)
 
-    session_booking[user_id].rank_name = response
+        session_booking[user_id].rank_name = response
 
-    reply_keyboard = [['BNHQ'], ['ALPHA'], ['BRAVO'],['BOAT'], ['SUPPORT'],['Quit']]
-    update.message.reply_text('''
-    What subunit are you from? Please enter in CAPS.
-    Enter one: BNHQ, ALPHA, BRAVO, BOAT, SUPPORT.''',
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard),
-    )
+        reply_keyboard = [['BNHQ'], ['ALPHA'], ['BRAVO'],['BOAT'], ['SUPPORT'],['Quit']]
+        update.message.reply_text('''
+        What subunit are you from? Please enter in CAPS.
+        Enter one: BNHQ, ALPHA, BRAVO, BOAT, SUPPORT.''',
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard),
+        )
 
-    return DAY
+        return DAY
+    except:
+        update.message.reply_text("Something went wrong, /start to start over.", reply_markup=ReplyKeyboardRemove())
+
+        return ConversationHandler.END
 
 def day(update: Update, context):
     user_id = str(update.message.chat_id)
 
     response = update.message.text
+    
     if response == 'Quit':
         
-        return QUIT
+        return quit(update,context)
 
-    #TODO: Add check whether coming from UNIT or SUBMIT state
-    if not session_booking[user_id].exists:
+    #If unit already assigned, user either already exists or they are redoing their booking from the SUBMIT state.
+    if session_booking[user_id].unit == "":
         session_booking[user_id].unit = response
 
     current_bookings = list(session_booking[user_id].daily_bookings.values())
@@ -177,8 +204,7 @@ def day(update: Update, context):
     reply_keyboard.append(['Quit'])
 
     update.message.reply_text('''
-    What day would you like to make a booking for?
-    Send /cancel to stop talking to me.''',
+    What day would you like to make a booking for?''',
         reply_markup=ReplyKeyboardMarkup(reply_keyboard)
     )
 
@@ -187,89 +213,142 @@ def day(update: Update, context):
 def timeslot(update: Update, context):
     day = update.message.text
 
-    if day == 'Quit':
+    try:
+        if day == 'Quit':
+            
+            return quit(update,context)
+
+        if (day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday']):
+            user_id = str(update.message.chat_id)
+            session_day[user_id] = str(update.message.text)
+
+            update.message.reply_text('Retrieving timeslots, give me a moment.')
+            current_caps = get_slots(str(update.message.text))
+
+            #Adds the timeslots only if there are any free slots remaining.
+            reply_keyboard = [[f'{times} ({current_caps[times]} slots left)'] for times in buttons.timeslotsMonToThur if current_caps[times]>0]
+
+            #If there is an existing booking, it means the user is in the edit booking conversation flow, as such we will allow them to delete the booking
+            if session_booking[user_id].daily_bookings[day] != 'None':
+                reply_keyboard.append(['Delete'])
+
+            reply_keyboard.append(['Quit'])
+
+            update.message.reply_text('''
+            What time would you like to book?''',
+                reply_markup=ReplyKeyboardMarkup(reply_keyboard)
+            )
+
+            return CONFIRMATION
+        elif update.message.text == 'Friday':
+            user_id = str(update.message.chat_id)
+            session_day[user_id] = str(update.message.text)
+
+            try:
+                current_caps = get_slots(str(update.message.text))
+            except:
+                
+                return quit(update,context)
+
+            reply_keyboard = [[f'{times} ({current_caps[times]} slots left)'] for times in buttons.timeslotsFri if current_caps[times]>0]
+           
+            #If there is an existing booking, it means the user is in the edit booking conversation flow, as such we will allow them to delete the booking
+            if session_booking[user_id].daily_bookings[day] != 'None':
+                reply_keyboard.append(['Delete'])
+
+            reply_keyboard.append(['Quit'])
+
+            update.message.reply_text('''
+            What time would you like to book?''',
+                reply_markup=ReplyKeyboardMarkup(reply_keyboard)
+            )
+
+            return CONFIRMATION
+    except:
+        update.message.reply_text("Something went wrong, /start to start over.", reply_markup=ReplyKeyboardRemove())
         
-        return quit(update,context)
-
-    if (day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday']):
-        user_id = str(update.message.chat_id)
-        session_day[user_id] = str(update.message.text)
-
-        current_caps = get_slots(str(update.message.text))
-
-        #Adds the timeslots only if there are any free slots remaining.
-        reply_keyboard = [[f'{times} ({current_caps[times]})'] for times in buttons.timeslotsMonToThur if current_caps[times]>0]
-        reply_keyboard.append(['Quit'])
-
-        update.message.reply_text('''
-        What time would you like to book?
-        Send /cancel to stop talking to me.''',
-            reply_markup=ReplyKeyboardMarkup(reply_keyboard)
-        )
-
-        return CONFIRMATION
-    elif update.message.text == 'Friday':
-        user_id = str(update.message.chat_id)
-        session_day[user_id] = str(update.message.text)
-
-        current_caps = get_slots(str(update.message.text))
-
-        reply_keyboard = [[f'{times} ({current_caps[times]})'] for times in buttons.timeslotsFri if current_caps[times]>0]
-        reply_keyboard.append(['Quit'])
-
-        update.message.reply_text('''
-        What time would you like to book?
-        Send /cancel to stop talking to me.''',
-            reply_markup=ReplyKeyboardMarkup(reply_keyboard)
-        )
-
-        return CONFIRMATION
-    else:
-        update.message.reply_text('Please enter Monday, Tuesday, Wednesday, Thursday, or Friday')
-        
+        return ConversationHandler.END
+    
 def confirmation(update: Update, context):
     user_id = str(update.message.chat_id)
     day_to_book = session_day[user_id]
 
     response = update.message.text
 
-    if response == 'Quit':
-        
-        return quit(update,context)
+    try:
+        if response == 'Quit':
+            
+            return quit(update,context)
 
-    # We only want to store the timeslot. 
-    # This update text is in the following format 'timeslot' (8 chars) 'slots remaining' (the rest of the text), so we need to slice it.
-    session_booking[user_id].daily_bookings[day_to_book] = response[:9]
+        if response == 'Delete':
+            reply_keyboard = [['Yes, Delete'],['Quit']]
+            update.message.reply_text('Are you sure you want to delete your booking?',
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard)
+            )
 
-    reply_keyboard = [['Submit'],['Change Booking'],['Quit']]
-    update.message.reply_text(f'''
-    Your booking details are as follows:
-    Day: {day_to_book}
-    Time: {update.message.text[:9]}
+            return SUBMIT
 
-    Do you want to submit this booking?''',
-    reply_markup=ReplyKeyboardMarkup(reply_keyboard)
-    )
+        # We only want to store the timeslot. 
+        # This update text is in the following format 'timeslot' (8 chars) 'slots remaining' (the rest of the text), so we need to slice it.
+        session_booking[user_id].daily_bookings[day_to_book] = response[:9]
 
-    return SUBMIT
+        reply_keyboard = [['Submit'],['Change Booking'],['Quit']]
+        update.message.reply_text(f'''
+        Your booking details are as follows:
+        Day: {day_to_book}
+        Time: {update.message.text[:9]}
 
-def submit(update: Update, context):
-    if update.message.text == 'Submit':
-        user_id = str(update.message.chat_id)
-        session_booking[user_id].add_booking(user_id,trackingSheet)
-
-        update.message.reply_text('Booking successful. Type /start to start over',
-        reply_markup=ReplyKeyboardRemove()
+        Do you want to submit this booking?''',
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard)
         )
 
-        session_booking.pop(user_id)
-        session_day.pop(user_id)
+        return SUBMIT
 
+    except:
+        update.message.reply_text("Something went wrong, /start to start over.", reply_markup=ReplyKeyboardRemove())
+        
         return ConversationHandler.END
-    else:
-        update.message.reply_text('submission cancelled, type /start to start over.',
-        reply_markup=ReplyKeyboardRemove())
 
+def submit(update: Update, context):
+    user_id = str(update.message.chat_id)
+
+    try:
+        if update.message.text == 'Submit':
+            session_booking[user_id].add_booking(user_id,trackingSheet)
+
+            update.message.reply_text('Booking successful. Type /start to start over',
+            reply_markup=ReplyKeyboardRemove()
+            )
+
+            session_booking.pop(user_id)
+            session_day.pop(user_id)
+
+            return ConversationHandler.END
+        elif update.message.text == 'Change Booking':
+            session_booking[user_id].daily_bookings[session_day[user_id]] = 'None'
+            session_day.pop(user_id)
+
+            return day(update,context)
+        elif update.message.text == 'Yes, Delete':
+            to_delete = session_day[user_id]
+            session_booking[user_id].delete_booking(to_delete,user_id,trackingSheet)
+            
+            update.message.reply_text('Booking deleted. Type /start to start over',
+            reply_markup=ReplyKeyboardRemove()
+            )
+
+            session_booking.pop(user_id)
+            session_day.pop(user_id)
+
+            return ConversationHandler.END
+        else:
+            update.message.reply_text('submission cancelled, type /start to start over.',
+            reply_markup=ReplyKeyboardRemove())
+
+            return ConversationHandler.END
+    except:
+        update.message.reply_text("Something went wrong, /start to start over.", reply_markup=ReplyKeyboardRemove())
+        
         return ConversationHandler.END
 
 def quit(update: Update, context):
@@ -289,25 +368,27 @@ def main():
     states={MENU:[MessageHandler(Filters.text,menu)],
     CHECKSTATE: [MessageHandler(Filters.text, check_state)],
     VIEWBOOKING: [MessageHandler(Filters.text, view_booking)],
+    EDITBOOKING: [MessageHandler(Filters.text, edit_booking)],
     NAME: [MessageHandler(Filters.text,name)],
-    UNIT: [MessageHandler(Filters.regex('^\w+\s\.*'),unit)],
+    UNIT: [MessageHandler(Filters.regex('^\w+\s\.*|Quit'),unit)],
     DAY: [MessageHandler(Filters.text,day)],
     TIME: [MessageHandler(Filters.text,timeslot)],
     CONFIRMATION: [MessageHandler(Filters.text,confirmation)],
-    SUBMIT: [MessageHandler(Filters.regex('^Submit$|^Quit$'), submit)],
+    SUBMIT: [MessageHandler(Filters.text, submit)],
     QUIT: [MessageHandler(Filters.text,quit)]
     },
-    fallbacks = [CommandHandler('cancel',quit),MessageHandler(Filters.text|~Filters.text,correct_format)]
-    )
+    fallbacks = [MessageHandler(Filters.text|~Filters.text,quit)])
 
     dispatcher.add_handler(start_conv_handler)
 
 
     # Start the Bot
-    updater.start_webhook(listen="0.0.0.0",
-                          port=PORT,
-                          url_path=TOKEN,webhook_url= 'https://secret-badlands-60887.herokuapp.com/' + TOKEN)
-    updater.idle()
+    # updater.start_webhook(listen="0.0.0.0",
+    #                       port=PORT,
+    #                       url_path=TOKEN,webhook_url= 'https://secret-badlands-60887.herokuapp.com/' + TOKEN)
+    # updater.idle()
+
+    updater.start_polling()
 
 if __name__ == '__main__':
     main()

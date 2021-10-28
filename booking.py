@@ -34,3 +34,16 @@ class Booking:
             row_to_add.append(timeslot)
         
         worksheet.append_row(row_to_add)
+
+    def delete_booking(self, day_to_delete, uid, worksheet):
+        row_to_add = [uid, self.rank_name, self.unit]
+        
+        old_row = worksheet.find(uid).row
+        worksheet.delete_row(old_row)
+
+        self.daily_bookings[day_to_delete] = 'None'
+        
+        for timeslot in self.daily_bookings.values():
+            row_to_add.append(timeslot)
+        
+        worksheet.append_row(row_to_add)
